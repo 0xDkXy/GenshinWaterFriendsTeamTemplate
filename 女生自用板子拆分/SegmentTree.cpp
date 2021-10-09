@@ -1,4 +1,5 @@
 
+// 4a3629edbc4bfda9ca2df0ff11f870e4 2021.8.10 线段树区间平方和
 namespace Tree
 {
     template <typename T>
@@ -7,197 +8,108 @@ namespace Tree
         T lazy_add;
         T sum_content;
         T lazy_mul;
-#ifdef REQUIRE_RMQ
-        T max_content;
+        // T max_content;
         T min_content;
-#endif
+        T sqrt_content;
+        _iNode() : lazy_add(0), sum_content(0), lazy_mul(1), min_content(0x3f3f3f3f), sqrt_content(0) {}
     };
 
-    // template <typename T>
-    // struct type_deduce
-    // {
-    //     using typ = T;
-    // };
-
-    template <typename T> // 使用的类T必须支持= （问就是你常用的int, long long, double甚至__int128都是支持的）
+    template <typename T>
     struct SegmentTree
     {
         using _Node = _iNode<T>;
-        int len;        // 线段树实际节点数
-        int valid_len;  // 原有效数据长度
-        _Node *_start;  // 起始位置
-        _Node *_finish; // 结束位置
+        int len;       // 线段树实际节点数
+        int valid_len; // 原有效数据长度
+        int QL, QR;    // 暂存询问避免递归下传
+        T TMP;
+        std::vector<_Node> _D;
         // template <typename AllocationPlaceType = void>
         SegmentTree(int length, void *arr = nullptr) // 构造函数只分配内存
         {
             valid_len = length;
             len = 1 << 1 + (int)ceil(log2(length));
-
-            // while (length > 1)
-            // {
-            //     len += length;
-            //     length = length + 1 >> 1;
-            // }
-
-            if (arr != nullptr)
-            {
-                _start = ::new (arr) _Node[len]; // 会占用arr序列的空间
-            }
-            else
-            {
-                _start = new _Node[len];
-            }
-
-            _finish = _start + len;
+            _D.resize(len);
         }
-
-        _Node *begin() { return _start; }
-        _Node *end() { return _finish; }
-
-        static int mid(int l, int r) { return l + r >> 1; }
 
         void show()
         {
             std::cout << '[';
-            for (_Node *i = begin(); i != end(); i++)
-                std::cout << i->sum_content << ",]"[i == end() - 1] << " \n"[i == end() - 1];
+            for (_Node *i = _D.begin(); i != _D.end(); ++i)
+                std::cout << i->sum_content << ",]"[i == _D.end() - 1] << " \n"[i == _D.end() - 1];
         }
 
-        std::function<void(int, T &&, int)> update_policies[2] =
-            {
-                [&](int x, T &&v, int my_length)
-                {
-                    _start[x].lazy_add *= v; // 更新此次修改的tag值
-                    _start[x].sum_content *= v;
-                    _start[x].lazy_mul *= v;
-#ifdef REQUIRE_RMQ
-                    _start[x].max_content *= v;
-                    _start[x].min_content *= v;
-#endif
-#ifdef MODULO
-                    _start[x].lazy_mul %= MODULO;
-                    _start[x].sum_content %= MODULO;
-                    _start[x].lazy_add %= MODULO;
-#endif
-                },
-                [&](int x, T &&v, int my_length)
-                {
-                    _start[x].lazy_add += v; // 更新此次修改的tag值
-                    _start[x].sum_content += my_length * v;
-#ifdef REQUIRE_RMQ
-                    _start[x].max_content += v;
-                    _start[x].min_content += v;
-#endif
-#ifdef MODULO
-                    _start[x].sum_content %= MODULO;
-                    _start[x].lazy_add %= MODULO;
-#endif
-                }};
+        static int mid(int l, int r) { return l + r >> 1; }
 
-        std::function<void(int, T &)> query_policies[3] =
-            {
-                [&](int x, T &res)
-                {
-                    res += _start[x].sum_content;
-#ifdef MODULO
-                    res %= MODULO;
-#endif
-                },
-                [&](int x, T &res)
-                {
-#ifdef REQUIRE_RMQ
-                    res = min(res, _start[x].min_content);
-#endif
-                },
-                [&](int x, T &res)
-                {
-#ifdef REQUIRE_RMQ
-                    res = max(res, _start[x].max_content);
-#endif
-                }};
-
-        template <typename Func>
-        void range_update(
-            int l,
-            int r,
-            T &&v,
-            int node_l,
-            int node_r,
-            int x,
-            Func &update_policy)
+        void update_mul(int node_l, int node_r, int x)
         {
-            if (l <= node_l and node_r <= r)
+            if (QL <= node_l and node_r <= QR)
             {
-                update_policy(x, std::move(v), node_r - node_l + 1);
+                _D[x].lazy_add *= TMP;
+                _D[x].sum_content *= TMP;
+                _D[x].lazy_mul *= TMP;
+                _D[x].min_content *= TMP;
+
+                _D[x].sqrt_content = _D[x].sqrt_content * TMP * TMP;
             }
             else
             {
                 push_down(x, node_l, node_r);
                 int mi = mid(node_l, node_r);
-                if (l <= mi)
-                    range_update(l, r, std::move(v), node_l, mi, x << 1, update_policy);
-                if (r > mi)
-                    range_update(l, r, std::move(v), mi + 1, node_r, x << 1 | 1, update_policy);
+                if (QL <= mi)
+                    update_mul(node_l, mi, x << 1);
+                if (QR > mi)
+                    update_mul(mi + 1, node_r, x << 1 | 1);
                 maintain(x);
             }
         }
 
-        void range_mul(int l, int r, T &v)
+        void update_add(int node_l, int node_r, int x)
         {
-            range_update(l, r, std::move(v), 1, this->valid_len, 1, update_policies[0]);
+            if (QL <= node_l and node_r <= QR)
+            {
+                LL my_length = node_r - node_l + 1;
+                _D[x].lazy_add += TMP;
+
+                _D[x].sqrt_content = _D[x].sqrt_content + 2 * TMP * _D[x].sum_content + (my_length * TMP * TMP);
+
+                _D[x].sum_content += my_length * TMP;
+                _D[x].min_content += TMP;
+            }
+            else
+            {
+                push_down(x, node_l, node_r);
+                int mi = mid(node_l, node_r);
+                if (QL <= mi)
+                    update_add(node_l, mi, x << 1);
+                if (QR > mi)
+                    update_add(mi + 1, node_r, x << 1 | 1);
+                maintain(x);
+            }
         }
 
-        void range_mul(int l, int r, T &&v)
+        void range_mul(int l, int r, T v)
         {
-            range_update(l, r, std::move(v), 1, this->valid_len, 1, update_policies[0]);
+            QL = l;
+            QR = r;
+            TMP = v;
+            update_mul(1, valid_len, 1);
         }
 
-        void range_add(int l, int r, T &v)
+        void range_add(int l, int r, T v)
         {
-            range_update(l, r, std::move(v), 1, this->valid_len, 1, update_policies[1]);
-        }
-
-        void range_add(int l, int r, T &&v)
-        {
-            range_update(l, r, std::move(v), 1, this->valid_len, 1, update_policies[1]);
+            QL = l;
+            QR = r;
+            TMP = v;
+            update_add(1, valid_len, 1);
         }
 
         inline void maintain(int i)
         {
             int l = i << 1;
             int r = l | 1;
-            _start[i].sum_content = (_start[l].sum_content + _start[r].sum_content)
-#ifdef MODULO
-                                    % MODULO
-#endif
-                ;
-#ifdef REQUIRE_RMQ
-            _start[i].max_content = max(_start[l].max_content, _start[r].max_content);
-            _start[i].min_content = min(_start[l].min_content, _start[r].min_content);
-#endif
-        }
-
-        void assign(T values[]) { build(values, 1, valid_len, 1); }
-
-        inline void build(T values[], int l, int r, int x)
-        {
-            _start[x].lazy_add = 0;
-            _start[x].lazy_mul = 1;
-            if (l == r)
-            {
-                _start[x].sum_content = values[l - 1];
-#ifdef REQUIRE_RMQ
-                _start[x].max_content = values[l - 1];
-                _start[x].min_content = values[l - 1];
-#endif
-            }
-            else
-            {
-                int mi = mid(l, r);
-                build(values, l, mi, x << 1);
-                build(values, mi + 1, r, x << 1 | 1);
-                maintain(x);
-            }
+            _D[i].sum_content = (_D[l].sum_content + _D[r].sum_content);
+            _D[i].min_content = min(_D[l].min_content, _D[r].min_content);
+            _D[i].sqrt_content = (_D[l].sqrt_content + _D[r].sqrt_content);
         }
 
         inline void push_down(int ind, int my_left_bound, int my_right_bound)
@@ -207,93 +119,110 @@ namespace Tree
             int mi = mid(my_left_bound, my_right_bound);
             int lson_length = (mi - my_left_bound + 1);
             int rson_length = (my_right_bound - mi);
-            if (_start[ind].lazy_mul != 1)
+            if (_D[ind].lazy_mul != 1)
             {
-                _start[l].sum_content *= _start[ind].lazy_mul;
-                _start[l].sum_content += _start[ind].lazy_add * lson_length;
+                // 区间和
+                _D[l].sum_content *= _D[ind].lazy_mul;
 
-                _start[r].sum_content *= _start[ind].lazy_mul;
-                _start[r].sum_content += _start[ind].lazy_add * rson_length;
+                _D[r].sum_content *= _D[ind].lazy_mul;
 
-                _start[l].lazy_mul *= _start[ind].lazy_mul;
-                _start[l].lazy_add *= _start[ind].lazy_mul;
-                _start[l].lazy_add += _start[ind].lazy_add;
+                _D[l].lazy_mul *= _D[ind].lazy_mul;
+                _D[l].lazy_add *= _D[ind].lazy_mul;
 
-                _start[r].lazy_mul *= _start[ind].lazy_mul;
-                _start[r].lazy_add *= _start[ind].lazy_mul;
-                _start[r].lazy_add += _start[ind].lazy_add;
-#ifdef MODULO
-                _start[l].lazy_mul %= MODULO;
-                _start[l].lazy_add %= MODULO;
-                _start[l].sum_content %= MODULO;
+                _D[r].lazy_mul *= _D[ind].lazy_mul;
+                _D[r].lazy_add *= _D[ind].lazy_mul;
 
-                _start[r].lazy_mul %= MODULO;
-                _start[r].lazy_add %= MODULO;
-                _start[r].sum_content %= MODULO;
-#endif
+                // RMQ
+                _D[l].min_content *= _D[ind].lazy_mul;
 
-#ifdef REQUIRE_RMQ
-                _start[l].max_content *= _start[ind].lazy_mul;
-                _start[l].max_content += _start[ind].lazy_add;
-                _start[l].min_content *= _start[ind].lazy_mul;
-                _start[l].min_content += _start[ind].lazy_add;
+                _D[r].min_content *= _D[ind].lazy_mul;
 
-                _start[r].max_content *= _start[ind].lazy_mul;
-                _start[r].max_content += _start[ind].lazy_add;
-                _start[r].min_content *= _start[ind].lazy_mul;
-                _start[r].min_content += _start[ind].lazy_add;
-#endif
-                _start[ind].lazy_mul = 1;
-                _start[ind].lazy_add = 0;
+                // 平方和，依赖区间和
+                _D[l].sqrt_content = _D[l].sqrt_content * _D[ind].lazy_mul * _D[ind].lazy_mul;
 
-                return;
+                _D[r].sqrt_content = _D[r].sqrt_content * _D[ind].lazy_mul * _D[ind].lazy_mul;
+
+                _D[ind].lazy_mul = 1;
             }
-            if (_start[ind].lazy_add)
+            if (_D[ind].lazy_add)
             {
-                _start[l].sum_content += _start[ind].lazy_add * lson_length;
-                _start[l].lazy_add += _start[ind].lazy_add;
-                _start[r].sum_content += _start[ind].lazy_add * rson_length;
-                _start[r].lazy_add += _start[ind].lazy_add;
-#ifdef MODULO
-                _start[l].lazy_add %= MODULO;
-                _start[l].sum_content %= MODULO;
-                _start[r].lazy_add %= MODULO;
-                _start[r].sum_content %= MODULO;
-#endif
+                // 平方和，先于区间和处理
+                _D[l].sqrt_content = _D[l].sqrt_content + 2 * _D[ind].lazy_add * _D[l].sum_content + _D[ind].lazy_add * _D[ind].lazy_add * lson_length;
 
-#ifdef REQUIRE_RMQ
-                _start[l].max_content += _start[ind].lazy_add;
-                _start[l].min_content += _start[ind].lazy_add;
+                _D[r].sqrt_content = _D[r].sqrt_content + 2 * _D[ind].lazy_add * _D[r].sum_content + _D[ind].lazy_add * _D[ind].lazy_add * rson_length;
 
-                _start[r].max_content += _start[ind].lazy_add;
-                _start[r].min_content += _start[ind].lazy_add;
-#endif
-                _start[ind].lazy_add = 0;
+                _D[l].sum_content += _D[ind].lazy_add * lson_length;
+                _D[l].lazy_add += _D[ind].lazy_add;
+                _D[r].sum_content += _D[ind].lazy_add * rson_length;
+                _D[r].lazy_add += _D[ind].lazy_add;
+
+                _D[l].min_content += _D[ind].lazy_add;
+                _D[r].min_content += _D[ind].lazy_add;
+                _D[ind].lazy_add = 0;
             }
         }
 
-        template <typename Func>
-        void query_proxy(
-            int l,
-            int r,
+        void _query_sum(
             T &res,
             int node_l,
             int node_r,
-            int x,
-            Func &query_policy)
+            int x)
         {
-            if (l <= node_l and node_r <= r)
+            if (QL <= node_l and node_r <= QR)
             {
-                query_policy(x, res);
+                res += _D[x].sum_content;
             }
             else
             {
                 push_down(x, node_l, node_r);
                 int mi = mid(node_l, node_r);
-                if (l <= mi)
-                    query_proxy(l, r, res, node_l, mi, x << 1, query_policy);
-                if (r > mi)
-                    query_proxy(l, r, res, mi + 1, node_r, x << 1 | 1, query_policy);
+                if (QL <= mi)
+                    _query_sum(res, node_l, mi, x << 1);
+                if (QR > mi)
+                    _query_sum(res, mi + 1, node_r, x << 1 | 1);
+                maintain(x);
+            }
+        }
+        void _query_min(
+            T &res,
+            int node_l,
+            int node_r,
+            int x)
+        {
+            if (QL <= node_l and node_r <= QR)
+            {
+                res = min(res, _D[x].min_content);
+            }
+            else
+            {
+                push_down(x, node_l, node_r);
+                int mi = mid(node_l, node_r);
+                if (QL <= mi)
+                    _query_min(res, node_l, mi, x << 1);
+                if (QR > mi)
+                    _query_min(res, mi + 1, node_r, x << 1 | 1);
+                maintain(x);
+            }
+        }
+
+        void _query_sqrt(
+            T &res,
+            int node_l,
+            int node_r,
+            int x)
+        {
+            if (QL <= node_l and node_r <= QR)
+            {
+                res += _D[x].sqrt_content;
+            }
+            else
+            {
+                push_down(x, node_l, node_r);
+                int mi = mid(node_l, node_r);
+                if (QL <= mi)
+                    _query_sqrt(res, node_l, mi, x << 1);
+                if (QR > mi)
+                    _query_sqrt(res, mi + 1, node_r, x << 1 | 1);
                 maintain(x);
             }
         }
@@ -301,14 +230,9 @@ namespace Tree
         T query_sum(int l, int r)
         {
             T res = 0;
-            query_proxy(l, r, res, 1, valid_len, 1, query_policies[0]);
-            return res;
-        }
-#ifdef REQUIRE_RMQ
-        T query_max(int l, int r)
-        {
-            T res = 0;
-            query_proxy(l, r, res, 1, valid_len, 1, query_policies[2]);
+            QL = l;
+            QR = r;
+            _query_sum(res, 1, valid_len, 1);
             return res;
         }
 
@@ -316,10 +240,19 @@ namespace Tree
         {
             T res;
             memset(&res, 0x3f, sizeof(res));
-            query_proxy(l, r, res, 1, valid_len, 1, query_policies[1]);
+            QL = l;
+            QR = r;
+            _query_min(res, 1, valid_len, 1);
             return res;
         }
-#endif
-    };
 
-} // namespace Tree
+        T query_sqrt(int l, int r)
+        {
+            T res = 0;
+            QL = l;
+            QR = r;
+            _query_sqrt(res, 1, valid_len, 1);
+            return res;
+        }
+    };
+}
